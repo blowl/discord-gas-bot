@@ -1,3 +1,6 @@
+# disclaimer
+This is under development and is absolutely not garunteed to work as intended or at all. 
+
 # discord-gas-bot
 Get the ethereum gas prices in your own discord server.
 
