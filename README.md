@@ -9,6 +9,7 @@ Install all dependencies:
 pip install -r requirements.txt
 ```
 
+
 ### Gas Price Bot
 1. Copy the [template config](config.yaml.tmpl) and configure with API keys.
 ```
@@ -24,10 +25,12 @@ Replace `etherscan` with `gasnow` to use Gasnow API (no key required!) or `ethga
 
 Ethgasstation is the recommended source
 
-# additional features
-This fork contains the addition of the `!alert` command. The command accepts two arguments the first one is whether you want to be notified when gas is either `above` or `below` a specified number. The second command is the gas price you want to be notified for.
+
+## additional features
+This fork contains the addition of the `!alert` command. 
+The command accepts two arguments the first one is whether you want to be notified when gas is either `above` or `below` a specified number. The second command is the gas price you want to be notified for.
 
 Examples:
+`!alert below 50` would tell the bot to dm you when gas is below 50.
 
-`!alert below 50` would tell the bot to dm you when gas is below 50
-`!alert above 100` would tell the bot to dm you when gas is above 100
+`!alert above 100` would tell the bot to dm you when gas is above 100.
