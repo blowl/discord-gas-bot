@@ -117,7 +117,7 @@ def main(source, verbose=False):
 
     @bot.command(pass_context=True, brief="Receive alerts for gas prices via dms")
     async def alert(ctx, arg1, arg2):
-        await ctx.send('you passed {} and {}'.format(arg1, arg2)) 
+        await ctx.send('you will be alerted when gas is {} {}'.format(arg1, arg2)) 
         if(arg1=="above"):
             insert_database(str(ctx.message.author.id), arg2, str(arg1))
         elif(arg1=="below"):
@@ -166,7 +166,6 @@ def main(source, verbose=False):
         config = yaml.load(f, Loader=yaml.Loader)
 
     async def send_update(fastest, average, slow,  rowsabove, rowsbelow, **kw,):
-        print('fuck')
         status = f'⚡{fastest} |🐢{slow} | !help'
         await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing,
                                                             name=status))
