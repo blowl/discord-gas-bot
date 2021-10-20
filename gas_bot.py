@@ -5,6 +5,7 @@ Run a Discord bot that takes the !gas command and shows the status in an embed +
 # python3 gas_bot.py -s etherscan
 
 from typing import Tuple
+from discord.utils import get
 import logging
 import yaml
 import discord
@@ -13,7 +14,36 @@ from discord.ext.commands import Bot
 import argparse
 import requests
 import time
+import sqlite3
+conn = sqlite3.connect("my_database.db")
 
+def database_request(key: str, type: str):
+    cursor = conn.cursor()
+    if(type=="above"):
+        sql = "SELECT * FROM "+type+" WHERE value<"+key
+    elif(type=="below"):
+        sql = "SELECT * FROM "+type+" WHERE value>"+key  
+    cursor.execute(sql)
+    rows = cursor.fetchall()
+    return rows
+
+def database_delete(key: str, type: str):
+    cursor = conn.cursor()
+    if(type=="above"):
+        sql = "DELETE FROM "+type+" WHERE user="+key
+    elif(type=="below"):
+        sql = "DELETE FROM "+type+" WHERE user="+key  
+    cursor.execute(sql)
+    conn.commit()
+
+def insert_database(key: str, value: str, type: str):
+    cursor = conn.cursor()
+    if(type=="above"):
+        sql = "INSERT or replace INTO "+type+" ('user', 'value') VALUES ('"+key+"', '"+value+"')"
+    elif(type=="below"):
+        sql = "INSERT or replace INTO "+type+" ('user', 'value') VALUES ('"+key+"', '"+value+"')" 
+    cursor.execute(sql)
+    conn.commit()
 
 def get_gas_from_etherscan(key: str,
                            verbose: bool = False) -> Tuple[int, int, int]:
@@ -29,22 +59,6 @@ def get_gas_from_etherscan(key: str,
             print('200 OK')
         data = r.json().get('result')
         return int(data['FastGasPrice']), int(data['ProposeGasPrice']), int(data['SafeGasPrice'])
-    else:
-        if verbose:
-            print(r.status_code)
-        time.sleep(10)
-
-
-def get_gas_from_gasnow(verbose: bool = False) -> Tuple[int, int, int]:
-    """
-    Fetch gas from Gasnow API
-    """
-    r = requests.get('https://www.gasnow.org/api/v3/gas/price')
-    if r.status_code == 200:
-        if verbose:
-            print('200 OK')
-        data = r.json()['data']
-        return int(data['fast'] // 1e9), int(data['standard'] // 1e9), int(data['slow'] // 1e9)
     else:
         if verbose:
             print(r.status_code)
@@ -67,7 +81,6 @@ def get_gas_from_ethgasstation(key: str, verbose: bool = False):
         if verbose:
             print(r.status_code)
         time.sleep(10)
-
 
 def main(source, verbose=False):
     # 1. Instantiate the bot
@@ -92,8 +105,6 @@ def main(source, verbose=False):
         else:
             if source == 'etherscan':
                 fast, average, slow = get_gas_from_etherscan(config['etherscanKey'], verbose=verbose)
-            else:
-                fast, average, slow = get_gas_from_gasnow(verbose=verbose)
             embed.add_field(name=f"Slow :turtle:", value=f"{slow} Gwei", inline=False)
             embed.add_field(name=f"Average :person_walking:", value=f"{average} Gwei", inline=False)
             embed.add_field(name=f"Fast :zap:", value=f"{fast} Gwei", inline=False)
@@ -104,31 +115,15 @@ def main(source, verbose=False):
         )
         await ctx.send(embed=embed)
 
-    @bot.command(pass_context=True, brief="Get the cost for each tx type")
-    async def fees(ctx):
-        calculate_eth_tx = lambda gwei, limit: round(gwei * limit * 0.000000001, 4)
-        fast, standard, slow = get_gas_from_gasnow(verbose=verbose)
-        eth_price = \
-            requests.get('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd').json()[
-                'ethereum'][
-                'usd']
-        simple_tx_fee_eth = calculate_eth_tx(fast, 21000)
-        simple_tx_fee_usd = round(simple_tx_fee_eth * eth_price, 2)
-        token_approve_eth = calculate_eth_tx(fast, 51000)
-        token_approve_usd = round(token_approve_eth * eth_price, 2)
-        token_transfer_eth = calculate_eth_tx(fast, 48000)
-        token_transfer_usd = round(token_transfer_eth * eth_price, 2)
-        range1_uniswap_eth = calculate_eth_tx(fast, 120000)
-        range1_uniswap_usd = round(range1_uniswap_eth * eth_price, 2)
-        range2_uniswap_eth = calculate_eth_tx(fast, 200000)
-        range2_uniswap_usd = round(range2_uniswap_eth * eth_price, 2)
-        fees_eth = f"**Fast: {fast}** **Standard: {standard}** **Slow: {slow}**\n"\
-                   f"Simple ETH TX: **${simple_tx_fee_usd}** ({simple_tx_fee_eth} Ξ)\n" \
-                   f"Token Approval (ERC20): **${token_approve_usd}** ({token_approve_eth} Ξ)\n" \
-                   f"Token Transfer (ERC20): **${token_transfer_usd}** ({token_transfer_eth} Ξ)\n" \
-                   f"Uniswap Trades: **${range1_uniswap_usd} - ${range2_uniswap_usd}** ({range1_uniswap_eth} Ξ - {range2_uniswap_eth} Ξ)\n"
-
-        await ctx.send(fees_eth)
+    @bot.command(pass_context=True, brief="Receive alerts for gas prices via dms")
+    async def alert(ctx, arg1, arg2):
+        await ctx.send('you passed {} and {}'.format(arg1, arg2)) 
+        if(arg1=="above"):
+            insert_database(str(ctx.message.author.id), arg2, str(arg1))
+        elif(arg1=="below"):
+            insert_database(str(ctx.message.author.id), arg2, str(arg1))
+        else:
+            ctx.send('invalid arguments')
 
     @bot.command(pass_context=True, brief="Get list of commands")
     async def help(ctx, args=None):
@@ -170,33 +165,60 @@ def main(source, verbose=False):
     with open(filename) as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    async def send_update(fastest, average, slow, **kw):
+    async def send_update(fastest, average, slow,  rowsabove, rowsbelow, **kw,):
+        print('fuck')
         status = f'⚡{fastest} |🐢{slow} | !help'
         await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.playing,
                                                             name=status))
 
-        for guild in bot.guilds:
-            guser = guild.get_member(bot.user.id);
-            await guser.edit(nick=f'Gas: 🚶{average}');
+        if(len(rowsabove)!=0 or len(rowsbelow)!=0):
+            for guild in bot.guilds:
+                if(len(rowsabove)!=0):
+                    for row in rowsabove:
+                        user = await bot.fetch_user(row[0])
+                        await user.send('GAS ALERT: GAS IS NOW ABOVE '+str(row[1]))
+                        database_delete(row[0], 'above')
+                if(len(rowsbelow)!=0):
+                    for row in rowsbelow:
+                        user = await bot.fetch_user(row[0])
+                        await user.send('GAS ALERT: GAS IS NOW BELOW '+str(row[1]))
+                        database_delete(row[0], 'below')
+                guser = guild.get_member(bot.user.id);
+                await guser.edit(nick=f'Gas: 🚶{average}');
 
         await asyncio.sleep(config['updateFreq'])  # in seconds
+
+    def create_table(conn, create_table_sql):
+        c = conn.cursor()
+        c.execute(create_table_sql)
 
     @bot.event
     async def on_ready():
         """
         When discord client is ready
         """
+        sql_create_above_table = """ CREATE TABLE IF NOT EXISTS above (
+                                    user text PRIMARY KEY,
+                                    value integer NOT NULL
+                                ); """
+        sql_create_below_table = """ CREATE TABLE IF NOT EXISTS below (
+                                    user text PRIMARY KEY,
+                                    value integer NOT NULL
+                                ); """
+        create_table(conn, sql_create_above_table)
+        create_table(conn, sql_create_below_table)
+
         while True:
             # 3. Fetch gas
             try:
                 if source == 'etherscan':
                     gweiList = get_gas_from_etherscan(config['etherscanKey'],
                                                       verbose=verbose)
-                elif source == 'gasnow':
-                    gweiList = get_gas_from_gasnow(verbose=verbose)
                 elif source == 'ethgasstation':
                     gweiList = get_gas_from_ethgasstation(config['ethgasstationKey'])
-                    await send_update(gweiList[0], gweiList[2], gweiList[3])
+                    rowsabove = database_request(str(gweiList[2]), 'above')
+                    rowsbelow = database_request(str(gweiList[2]), 'below')
+                    await send_update(gweiList[0], gweiList[2], gweiList[3], rowsabove, rowsbelow)
                     continue
                 else:
                     raise NotImplemented('Unsupported source')
@@ -219,7 +241,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-s', '--source',
-                        choices=['etherscan', 'gasnow', 'ethgasstation'],
+                        choices=['etherscan', 'ethgasstation'],
                         default='etherscan',
                         help='select API')
 
